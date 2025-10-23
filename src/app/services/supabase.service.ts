@@ -3,7 +3,7 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { environment } from '../../environments/environment';
 
 @Injectable({
-  providedIn: 'root'
+  providedIn: 'root',
 })
 export class SupabaseService {
   private supabase!: SupabaseClient;
@@ -21,8 +21,8 @@ export class SupabaseService {
             // keep session persistence behavior as desired
             persistSession: true,
             // avoid URL session detection in SPA routing
-            detectSessionInUrl: false
-          }
+            detectSessionInUrl: false,
+          },
         });
       }
     } catch (error) {
@@ -32,5 +32,11 @@ export class SupabaseService {
 
   getPlayers() {
     return this.supabase.from('player').select('*');
+  }
+
+  async createGame() {
+    const { data, error } = await this.supabase.functions.invoke('CreateGame', {
+      body: { name: 'Functions' },
+    });
   }
 }

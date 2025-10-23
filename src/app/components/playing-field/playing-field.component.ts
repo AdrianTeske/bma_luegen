@@ -10,12 +10,14 @@ import { SupabaseService } from '../../services/supabase.service';
   styleUrl: './playing-field.component.scss',
 })
 export class PlayingFieldComponent {
-
   supabaseService = inject(SupabaseService);
 
-  btnCreateGameClick() {
-    this.supabaseService.getPlayers().then((response) => {
-      console.log(response);
+  async btnCreateGameClick() {
+    // this.supabaseService.getPlayers().then((response) => {
+    //   console.log(response);
+    // });
+    await this.supabaseService.createGame().then((response) => {
+      console.log(response, 'Game created');
     });
   }
 }
