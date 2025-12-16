@@ -3,4 +3,5 @@ export enum Suit {
   Diamonds = 'diamonds',
   Clubs = 'clubs',
   Spades = 'spades',
+  Back = 'back',
 }

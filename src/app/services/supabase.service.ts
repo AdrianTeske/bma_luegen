@@ -30,13 +30,47 @@ export class SupabaseService {
     }
   }
 
-  getPlayers() {
-    return this.supabase.from('player').select('*');
+  getUser() {
+    return this.supabase.auth.getUser();
   }
 
-  async createGame() {
-    const { data, error } = await this.supabase.functions.invoke('CreateGame', {
-      body: { name: 'Functions' },
+  async createUser(email: string, password: string, displayName?: string) {
+    this.supabase.auth.signUp({
+      email: email,
+      password: password,
+      options: {
+        data: {
+          display_name: displayName,
+        },
+      },
+    }).then((response) => {
+      console.log(response);
     });
+  }
+
+  async signInAnon(displayName: string) {
+    const { data, error } = await this.supabase.auth.signInAnonymously({
+      options: {
+        data: {
+          display_name: displayName || 'guest_' + Math.floor(Math.random()*1000),
+        },
+      }
+    });
+
+    if (error) console.error(error);
+    return data;
+  }
+
+  async createLobby() {
+    const { data, error } = await this.supabase.functions.invoke('CreateLobby', {
+      method: 'POST',
+      body: JSON.stringify({ name: 'Functions' }),
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (error) console.error(error);
+    return data;
   }
 }

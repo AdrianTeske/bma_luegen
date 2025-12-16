@@ -11,4 +11,5 @@ import { Rank } from '../../api/types/rank';
 export class CardComponent {
   suit = input.required<Suit>();
   rank = input.required<Rank>();
+  degree = input<number>(0);
 }
