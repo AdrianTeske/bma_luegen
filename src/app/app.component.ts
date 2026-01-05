@@ -1,5 +1,5 @@
 import { Component } from '@angular/core';
-import { PlayingFieldComponent } from './components/playing-field/playing-field.component';
+import { PlayingFieldComponent } from './pages/playing-field/playing-field.component';
 import { RouterOutlet } from "@angular/router";
 
 @Component({

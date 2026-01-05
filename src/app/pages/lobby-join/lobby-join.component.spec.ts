@@ -1,18 +1,18 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 
-import { PlayingFieldComponent } from './playing-field.component';
+import { LobbyJoinComponent } from './lobby-join.component';
 
-describe('PlayingFieldComponent', () => {
-  let component: PlayingFieldComponent;
-  let fixture: ComponentFixture<PlayingFieldComponent>;
+describe('LobbyJoinComponent', () => {
+  let component: LobbyJoinComponent;
+  let fixture: ComponentFixture<LobbyJoinComponent>;
 
   beforeEach(async () => {
     await TestBed.configureTestingModule({
-      imports: [PlayingFieldComponent]
+      imports: [LobbyJoinComponent]
     })
     .compileComponents();
 
-    fixture = TestBed.createComponent(PlayingFieldComponent);
+    fixture = TestBed.createComponent(LobbyJoinComponent);
     component = fixture.componentInstance;
     fixture.detectChanges();
   });
