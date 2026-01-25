@@ -1,4 +1,4 @@
-import { Component, inject } from '@angular/core';
+import { Component, ElementRef, inject, ViewChild } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { RealtimeChannel } from '@supabase/supabase-js';
 import { FormsModule } from '@angular/forms';
@@ -15,6 +15,7 @@ type GameRow = {
   turn_order: number | string | null;
   last_turn: string | null;
   status: string;
+  decks: number | string | null;
 };
 
 type SessionRow = {
@@ -24,6 +25,7 @@ type SessionRow = {
   connected: boolean;
   last_seen: string | null;
   turn_order: number | string | null;
+  display_name?: string | null;
 };
 
 @Component({
@@ -43,10 +45,17 @@ export class PlayingFieldComponent {
   sessions: SessionRow[] = [];
   handCards: Array<{ suit: Suit; rank: Rank }> = [];
   selectedIndices = new Set<number>();
+  committedIndices = new Set<number>();
+  sliderIndex = 0;
+  private sliderStartY: number | null = null;
+  private sliderActive = false;
+  private sliderCommitted = false;
+  private pendingPlayed: Record<string, number> = {};
+  @ViewChild('handScroll') handScroll?: ElementRef<HTMLDivElement>;
   selectedRank: Rank = Rank.Ace;
 
-  turnSeconds = 30;
-  remainingSeconds = 30;
+  turnSeconds = 60;
+  remainingSeconds = 60;
   private timerInterval?: number;
   private turnStartMs = 0;
   private serverOffsetMs = 0;
@@ -54,6 +63,10 @@ export class PlayingFieldComponent {
 
   private gameChannel?: RealtimeChannel;
   private sessionChannel?: RealtimeChannel;
+  private redirecting = false;
+  showLeaveConfirm = false;
+  private awaitingTurnAdvance = false;
+  private lastKnownTurnOrder: number | null = null;
 
   get ranks() {
     return Object.values(Rank);
@@ -70,6 +83,7 @@ export class PlayingFieldComponent {
       return;
     }
 
+    await this.supabaseService.loadSession();
     await this.loadGameState();
     await this.supabaseService.startLobbyPresence(this.gameId);
     await this.subscribeRealtime();
@@ -98,20 +112,31 @@ export class PlayingFieldComponent {
     const { data, error } = await this.supabaseService
       .getClient()
       .from('game')
-      .select('id, host, stack, rank, turn_order, last_turn, status')
+      .select('id, host, stack, rank, turn_order, last_turn, status, decks')
       .eq('id', this.gameId)
       .single();
 
     if (!error) {
-      this.game = data as GameRow;
+      const rawStack = (data as GameRow)?.stack ?? [];
+      const normalizedStack = Array.isArray(rawStack)
+        ? (rawStack
+            .map((card) => this.normalizeCard(card as any))
+            .filter(Boolean) as Array<{ suit: Suit; rank: Rank }>)
+        : [];
+      this.game = { ...(data as GameRow), stack: normalizedStack };
+      if (this.game?.status && this.game.status !== 'playing') {
+        await this.navigateToLobby();
+      }
     }
   }
 
   private async loadSessions() {
     const { data, error } = await this.supabaseService
       .getClient()
-      .from('session')
-      .select('player_id, game_id, hand, connected, last_seen, turn_order')
+      .from('session_public')
+      .select(
+        'player_id, game_id, hand, connected, last_seen, turn_order, display_name'
+      )
       .eq('game_id', this.gameId);
 
     if (!error) {
@@ -155,19 +180,35 @@ export class PlayingFieldComponent {
   private updateDerivedState() {
     const currentSession = this.getCurrentTurnSession();
     const newCurrentId = currentSession?.player_id ?? '';
+    const currentTurnOrder = this.toNumber(this.game?.turn_order ?? null);
 
     if (newCurrentId && newCurrentId !== this.currentTurnPlayerId) {
       this.currentTurnPlayerId = newCurrentId;
       this.resetTurnTimer();
+      this.awaitingTurnAdvance = false;
     }
+    if (this.lastKnownTurnOrder !== null && currentTurnOrder !== this.lastKnownTurnOrder) {
+      this.awaitingTurnAdvance = false;
+    }
+    this.lastKnownTurnOrder = currentTurnOrder;
+
+    const currentUserId = this.currentUserId;
+
+    console.log(this.sessions);
+    console.log(this.currentUserId);
+
 
     const ownSession = this.sessions.find(
-      (session) => session.player_id === this.supabaseService.player().id
+      (session) => session.player_id === currentUserId
     );
 
-    this.handCards = (ownSession?.hand ?? [])
+    const serverHand = (ownSession?.hand ?? [])
       .map((card) => this.normalizeCard(card))
       .filter(Boolean) as Array<{ suit: Suit; rank: Rank }>;
+
+    this.handCards = this.applyPendingRemovals(serverHand);
+    this.handCards = this.sortHand(this.handCards);
+    this.prunePendingRemovals(serverHand);
 
     if (!this.isCurrentPlayerTurn) {
       this.selectedIndices.clear();
@@ -233,7 +274,7 @@ export class PlayingFieldComponent {
   get isCurrentPlayerTurn() {
     return (
       this.getCurrentTurnSession()?.player_id ===
-      this.supabaseService.player().id
+      this.currentUserId
     );
   }
 
@@ -248,23 +289,64 @@ export class PlayingFieldComponent {
 
   get primaryActionLabel() {
     if (this.stackCount > 0) {
-      return this.hasSelection ? 'Lay Cards' : 'Call Bullshit';
+      if (!this.hasSelection && !this.hasCommitted) {
+        return 'Call Bullshit';
+      }
+      return this.hasCommitted ? 'Lay Cards' : 'Lie';
     }
-    return this.hasSelection ? 'Lay Cards' : 'Lie';
+    return this.hasCommitted ? 'Lay Cards' : 'Lie';
+  }
+
+  get showDeclaredRankSelect() {
+    return this.isCurrentPlayerTurn && this.game?.rank === null;
+  }
+
+  get isRankLocked() {
+    return (
+      !this.showDeclaredRankSelect ||
+      this.hasSelection ||
+      this.hasCommitted ||
+      !this.isCurrentPlayerTurn
+    );
   }
 
   get primaryActionDisabled() {
     if (!this.isCurrentPlayerTurn) {
       return true;
     }
-    if (this.stackCount === 0 && !this.hasSelection) {
+    if (this.awaitingTurnAdvance) {
       return true;
+    }
+    if (this.stackCount === 0 && !this.hasSelection && !this.hasCommitted) {
+      return true;
+    }
+    if (!this.hasSelection && !this.hasCommitted && this.stackCount > 0) {
+      return false;
     }
     return false;
   }
 
+  get isAwaitingTurnAdvance() {
+    return this.awaitingTurnAdvance;
+  }
+
   get hasSelection() {
     return this.selectedIndices.size > 0;
+  }
+
+  get hasCommitted() {
+    return this.committedIndices.size > 0;
+  }
+
+  get maxLayCount() {
+    const decks = this.toNumber(this.game?.decks ?? 1) || 1;
+    return Math.max(1, decks * 3);
+  }
+
+  get hasAceSelected() {
+    return Array.from(this.selectedIndices).some(
+      (index) => this.handCards[index]?.rank === Rank.Ace
+    );
   }
 
   get currentSessionDisconnected() {
@@ -275,11 +357,19 @@ export class PlayingFieldComponent {
     if (!this.isCurrentPlayerTurn) {
       return;
     }
+    if (this.hasCommitted) {
+      return;
+    }
     if (this.selectedIndices.has(index)) {
       this.selectedIndices.delete(index);
     } else {
+      if (this.selectedIndices.size >= this.maxLayCount) {
+        return;
+      }
       this.selectedIndices.add(index);
     }
+    this.sliderIndex = index;
+    this.ensureDeclaredRankValid();
   }
 
   isSelected(index: number) {
@@ -290,30 +380,46 @@ export class PlayingFieldComponent {
     if (!this.isCurrentPlayerTurn) {
       return;
     }
-    if (this.stackCount > 0 && !this.hasSelection) {
+    if (this.awaitingTurnAdvance) {
+      return;
+    }
+    if (this.stackCount > 0 && !this.hasSelection && !this.hasCommitted) {
       await this.supabaseService.turnAction({
         gameId: this.gameId,
         callLiar: true,
       });
+      this.awaitingTurnAdvance = true;
       return;
     }
 
-    if (!this.hasSelection) {
+    if (!this.hasSelection && !this.hasCommitted) {
       return;
     }
 
-    const cards = Array.from(this.selectedIndices).map(
+    if (!this.hasCommitted) {
+      this.commitSelected();
+      return;
+    }
+
+    const cards = Array.from(this.committedIndices).map(
       (index) => this.handCards[index]
     );
 
     await this.supabaseService.turnAction({
       gameId: this.gameId,
-      cards: cards.map((card) => ({ suit: card.suit, rank: card.rank })),
-      declaredRank: this.selectedRank,
+      cards: cards.map((card) => ({
+        suit: this.toDbSuit(card.suit),
+        rank: this.toDbRank(card.rank),
+      })),
+      declaredRank: this.toDbRank(this.selectedRank),
       callLiar: false,
     });
 
+    this.trackPendingRemovals(cards);
+    this.removeCardsFromHand(this.committedIndices);
     this.selectedIndices.clear();
+    this.committedIndices.clear();
+    this.awaitingTurnAdvance = true;
   }
 
   private getCurrentTurnSession() {
@@ -327,8 +433,14 @@ export class PlayingFieldComponent {
     if (!playerId) {
       return 'Unknown';
     }
-    if (playerId === this.supabaseService.player().id) {
+    if (playerId === this.currentUserId) {
       return this.supabaseService.player().displayName || 'You';
+    }
+    const session = this.sessions.find(
+      (item) => item.player_id === playerId && item.display_name
+    );
+    if (session?.display_name) {
+      return session.display_name;
     }
     const known = this.supabaseService
       .players()
@@ -339,9 +451,23 @@ export class PlayingFieldComponent {
     return `Player ${playerId.slice(0, 4)}`;
   }
 
-  private normalizeCard(card: { suit?: string; rank?: string }) {
-    const suit = this.toSuit(card.suit);
-    const rank = this.toRank(card.rank);
+  private normalizeCard(card: { suit?: string; rank?: string; f1?: string; f2?: string } | string) {
+    if (typeof card === 'string') {
+      const parsed = this.parseCardTuple(card);
+      if (!parsed) {
+        return null;
+      }
+      const suit = this.toSuit(parsed.suit);
+      const rank = this.toRank(parsed.rank);
+      if (!suit || !rank) {
+        return null;
+      }
+      return { suit, rank };
+    }
+    const rawSuit = card.suit ?? card.f2;
+    const rawRank = card.rank ?? card.f1;
+    const suit = this.toSuit(rawSuit);
+    const rank = this.toRank(rawRank);
     if (!suit || !rank) {
       return null;
     }
@@ -352,8 +478,19 @@ export class PlayingFieldComponent {
     if (!value) {
       return null;
     }
+    const normalized = value.toString().toLowerCase();
+    const alias =
+      normalized === 'spade'
+        ? 'spades'
+        : normalized === 'club'
+        ? 'clubs'
+        : normalized === 'diamond'
+        ? 'diamonds'
+        : normalized === 'heart'
+        ? 'hearts'
+        : normalized;
     const match = Object.values(Suit).find(
-      (suit) => suit.toString() === value
+      (suit) => suit.toString().toLowerCase() === alias
     );
     return match ?? null;
   }
@@ -362,10 +499,391 @@ export class PlayingFieldComponent {
     if (!value) {
       return null;
     }
+    const normalized = value.toString().toLowerCase();
     const match = Object.values(Rank).find(
-      (rank) => rank.toString() === value
+      (rank) => rank.toString().toLowerCase() === normalized
     );
-    return match ?? null;
+    if (match) {
+      return match;
+    }
+    switch (normalized) {
+      case 'a':
+        return Rank.Ace;
+      case 'k':
+        return Rank.King;
+      case 'q':
+        return Rank.Queen;
+      case 'j':
+        return Rank.Jack;
+      case 'two':
+        return Rank.Two;
+      case 'three':
+        return Rank.Three;
+      case 'four':
+        return Rank.Four;
+      case 'five':
+        return Rank.Five;
+      case 'six':
+        return Rank.Six;
+      case 'seven':
+        return Rank.Seven;
+      case 'eight':
+        return Rank.Eight;
+      case 'nine':
+        return Rank.Nine;
+      case 'ten':
+        return Rank.Ten;
+      case 'jack':
+        return Rank.Jack;
+      case 'queen':
+        return Rank.Queen;
+      case 'king':
+        return Rank.King;
+      case 'ace':
+        return Rank.Ace;
+      case '02':
+        return Rank.Two;
+      case '03':
+        return Rank.Three;
+      case '04':
+        return Rank.Four;
+      case '05':
+        return Rank.Five;
+      case '06':
+        return Rank.Six;
+      case '07':
+        return Rank.Seven;
+      case '08':
+        return Rank.Eight;
+      case '09':
+        return Rank.Nine;
+      case '2':
+        return Rank.Two;
+      case '3':
+        return Rank.Three;
+      case '4':
+        return Rank.Four;
+      case '5':
+        return Rank.Five;
+      case '6':
+        return Rank.Six;
+      case '7':
+        return Rank.Seven;
+      case '8':
+        return Rank.Eight;
+      case '9':
+        return Rank.Nine;
+      case '10':
+        return Rank.Ten;
+      default:
+        return null;
+    }
+  }
+
+  private parseCardTuple(value: string) {
+    const trimmed = value.trim();
+    const match = /^\(([^,]+),([^)]+)\)$/.exec(trimmed);
+    if (!match) {
+      return null;
+    }
+    return {
+      rank: match[1]?.trim(),
+      suit: match[2]?.trim(),
+    };
+  }
+
+  private get currentUserId() {
+    return (
+      this.supabaseService.player().id ||
+      this.supabaseService.session()?.user?.id ||
+      ''
+    );
+  }
+
+  get isHost() {
+    return this.currentUserId && this.game?.host === this.currentUserId;
+  }
+
+  async leaveGame() {
+    if (!this.gameId) {
+      return;
+    }
+    const playerId = this.currentUserId;
+    if (playerId) {
+      await this.supabaseService
+        .getClient()
+        .from('session')
+        .delete()
+        .eq('game_id', this.gameId)
+        .eq('player_id', playerId);
+    }
+    await this.supabaseService.stopLobbyPresence();
+    this.game = null;
+    this.sessions = [];
+    this.supabaseService.lobbyId.set('');
+    await this.navigateToLobby();
+  }
+
+  openLeaveConfirm() {
+    this.showLeaveConfirm = true;
+  }
+
+  closeLeaveConfirm() {
+    this.showLeaveConfirm = false;
+  }
+
+  async endGame() {
+    if (!this.gameId || !this.isHost) {
+      return;
+    }
+    await this.supabaseService
+      .getClient()
+      .from('game')
+      .update({
+        status: 'standby',
+        last_turn: null,
+        rank: null,
+        stack: [],
+        discarded_cards: null,
+      })
+      .eq('id', this.gameId);
+  }
+
+  private async navigateToLobby() {
+    if (this.redirecting) {
+      return;
+    }
+    this.redirecting = true;
+    await this.router.navigate(['/menu']);
+    this.redirecting = false;
+  }
+
+  private sortHand(cards: Array<{ suit: Suit; rank: Rank }>) {
+    const rankOrder: Rank[] = [
+      Rank.Two,
+      Rank.Three,
+      Rank.Four,
+      Rank.Five,
+      Rank.Six,
+      Rank.Seven,
+      Rank.Eight,
+      Rank.Nine,
+      Rank.Ten,
+      Rank.Jack,
+      Rank.Queen,
+      Rank.King,
+      Rank.Ace,
+    ];
+    return [...cards].sort((a, b) => {
+      return rankOrder.indexOf(a.rank) - rankOrder.indexOf(b.rank);
+    });
+  }
+
+  private removeCardsFromHand(indices: Set<number>) {
+    const removal = new Set(indices);
+    const next = this.handCards.filter((_, index) => !removal.has(index));
+    this.handCards = this.sortHand(next);
+  }
+
+  private cardKey(card: { suit: Suit; rank: Rank }) {
+    return `${card.rank}-${card.suit}`;
+  }
+
+  private trackPendingRemovals(cards: Array<{ suit: Suit; rank: Rank }>) {
+    for (const card of cards) {
+      const key = this.cardKey(card);
+      this.pendingPlayed[key] = (this.pendingPlayed[key] ?? 0) + 1;
+    }
+  }
+
+  private applyPendingRemovals(hand: Array<{ suit: Suit; rank: Rank }>) {
+    if (!Object.keys(this.pendingPlayed).length) {
+      return hand;
+    }
+    const counts = { ...this.pendingPlayed };
+    const result: Array<{ suit: Suit; rank: Rank }> = [];
+    for (const card of hand) {
+      const key = this.cardKey(card);
+      if (counts[key]) {
+        counts[key] -= 1;
+      } else {
+        result.push(card);
+      }
+    }
+    return result;
+  }
+
+  private prunePendingRemovals(serverHand: Array<{ suit: Suit; rank: Rank }>) {
+    if (!Object.keys(this.pendingPlayed).length) {
+      return;
+    }
+    const counts: Record<string, number> = {};
+    for (const card of serverHand) {
+      const key = this.cardKey(card);
+      counts[key] = (counts[key] ?? 0) + 1;
+    }
+    for (const key of Object.keys(this.pendingPlayed)) {
+      if (!counts[key]) {
+        delete this.pendingPlayed[key];
+      }
+    }
+  }
+
+  private toDbSuit(suit: Suit) {
+    switch (suit) {
+      case Suit.Spades:
+        return 'spade';
+      case Suit.Clubs:
+        return 'club';
+      case Suit.Diamonds:
+        return 'diamond';
+      case Suit.Hearts:
+        return 'heart';
+      default:
+        return suit;
+    }
+  }
+
+  private toDbRank(rank: Rank) {
+    switch (rank) {
+      case Rank.Ace:
+        return 'A';
+      case Rank.King:
+        return 'K';
+      case Rank.Queen:
+        return 'Q';
+      case Rank.Jack:
+        return 'J';
+      case Rank.Ten:
+        return '10';
+      case Rank.Nine:
+        return '9';
+      case Rank.Eight:
+        return '8';
+      case Rank.Seven:
+        return '7';
+      case Rank.Six:
+        return '6';
+      case Rank.Five:
+        return '5';
+      case Rank.Four:
+        return '4';
+      case Rank.Three:
+        return '3';
+      case Rank.Two:
+        return '2';
+      default:
+        return rank;
+    }
+  }
+
+  onSliderChange(value: string) {
+    if (!this.isCurrentPlayerTurn || this.hasCommitted) {
+      return;
+    }
+    const index = Math.max(0, Math.min(this.handCards.length - 1, Number(value)));
+    this.sliderIndex = index;
+    this.scrollHandToIndex(index);
+  }
+
+  commitSelected() {
+    if (!this.hasSelection || this.hasCommitted) {
+      return;
+    }
+    if (this.selectedIndices.size > this.maxLayCount) {
+      const trimmed = Array.from(this.selectedIndices).slice(0, this.maxLayCount);
+      this.selectedIndices = new Set(trimmed);
+    }
+    this.committedIndices = new Set(this.selectedIndices);
+    this.ensureDeclaredRankValid(true);
+  }
+
+  clearCommitted() {
+    this.committedIndices.clear();
+  }
+
+  handleSliderSwipeUp(deltaY: number) {
+    if (deltaY < -30) {
+      this.commitSelected();
+      this.sliderCommitted = true;
+    }
+  }
+
+  clearSelection() {
+    this.selectedIndices.clear();
+    this.committedIndices.clear();
+    this.sliderIndex = 0;
+    this.ensureDeclaredRankValid();
+  }
+
+  onDeclaredRankChange() {
+    this.ensureDeclaredRankValid();
+  }
+
+  get availableRanks() {
+    return this.ranks.filter((rank) => rank !== Rank.Ace);
+  }
+
+  private scrollHandToIndex(index: number) {
+    const container = this.handScroll?.nativeElement;
+    if (!container) {
+      return;
+    }
+    const cards = Array.from(container.querySelectorAll('button'));
+    const card = cards[index] as HTMLElement | undefined;
+    if (!card) {
+      return;
+    }
+    const left = card.offsetLeft - container.clientWidth / 2 + card.clientWidth / 2;
+    container.scrollTo({ left, behavior: 'smooth' });
+  }
+
+  onSliderPointerDown(event: PointerEvent) {
+    if (!this.isCurrentPlayerTurn || this.hasCommitted) {
+      return;
+    }
+    this.sliderStartY = event.clientY;
+    this.sliderActive = true;
+    this.sliderCommitted = false;
+  }
+
+  onSliderPointerMove(event: PointerEvent) {
+    if (this.sliderStartY === null) {
+      return;
+    }
+    const deltaY = event.clientY - this.sliderStartY;
+    if (deltaY < -30) {
+      this.commitSelected();
+      this.sliderStartY = null;
+    }
+  }
+
+  onSliderPointerUp() {
+    if (this.sliderActive && !this.sliderCommitted) {
+      this.toggleSliderSelection();
+    }
+    this.sliderStartY = null;
+    this.sliderActive = false;
+    this.sliderCommitted = false;
+  }
+
+  private toggleSliderSelection() {
+    const index = this.sliderIndex;
+    if (!this.handCards[index]) {
+      return;
+    }
+    if (this.selectedIndices.has(index)) {
+      this.selectedIndices.delete(index);
+    } else if (this.selectedIndices.size < this.maxLayCount) {
+      this.selectedIndices.add(index);
+    }
+    this.ensureDeclaredRankValid();
+  }
+
+  private ensureDeclaredRankValid(force = false) {
+    if (this.hasAceSelected && (this.selectedRank === Rank.Ace || force)) {
+      this.selectedRank = Rank.King;
+    }
   }
 
   rankLabel(value: string) {

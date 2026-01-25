@@ -56,20 +56,34 @@
         </div>
 
         <div class="mt-6 grid gap-4 md:grid-cols-[1fr_auto]">
-          <div class="rounded-2xl border border-emerald-400/20 bg-felt-950/60 px-4 py-4">
-            <p class="text-xs uppercase tracking-[0.35em] text-emerald-200/80">
-              Declare Rank
-            </p>
-            <select
-              [(ngModel)]="selectedRank"
-              [disabled]="!isCurrentPlayerTurn"
-              class="mt-3 w-full rounded-2xl border border-emerald-400/30 bg-felt-950/70 px-4 py-2 text-lg text-ink-50 focus:border-gold-300/70 focus:outline-none focus:ring-2 focus:ring-gold-400/40 disabled:opacity-50"
-            >
-              @for (rank of ranks; track rank) {
-                <option [value]="rank">{{ rankLabel(rank) }}</option>
-              }
-            </select>
-          </div>
+          @if (showDeclaredRankSelect) {
+            <div class="rounded-2xl border border-emerald-400/20 bg-felt-950/60 px-4 py-4">
+              <p class="text-xs uppercase tracking-[0.35em] text-emerald-200/80">
+                Declare Rank
+              </p>
+              <select
+                [(ngModel)]="selectedRank"
+                (ngModelChange)="onDeclaredRankChange()"
+                [disabled]="isRankLocked"
+                class="mt-3 w-full rounded-2xl border border-emerald-400/30 bg-felt-950/70 px-4 py-2 text-lg text-ink-50 focus:border-gold-300/70 focus:outline-none focus:ring-2 focus:ring-gold-400/40 disabled:opacity-50"
+              >
+                @for (rank of availableRanks; track rank) {
+                  <option [value]="rank">
+                    {{ rankLabel(rank) }}
+                  </option>
+                }
+              </select>
+            </div>
+          } @else {
+            <div class="rounded-2xl border border-emerald-400/20 bg-felt-950/60 px-4 py-4">
+              <p class="text-xs uppercase tracking-[0.35em] text-emerald-200/80">
+                Declared Rank
+              </p>
+              <p class="mt-3 text-lg font-semibold text-ink-50">
+                {{ declaredRankLabel }}
+              </p>
+            </div>
+          }
           <button
             (click)="primaryAction()"
             [disabled]="primaryActionDisabled"
@@ -79,6 +93,12 @@
             <span class="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.5),transparent_70%)] opacity-0 transition group-hover:opacity-100"></span>
           </button>
         </div>
+        @if (isAwaitingTurnAdvance) {
+          <p class="mt-4 text-center text-xs uppercase tracking-[0.35em] text-ink-300/70">
+            Waiting for next turn...
+          </p>
+        }
+
       </div>
 
       <div class="rounded-3xl border border-emerald-500/30 bg-felt-900/70 p-5 shadow-[0_30px_80px_-40px_rgba(0,0,0,0.85)] backdrop-blur md:p-6">
@@ -86,17 +106,18 @@
           <p class="text-xs uppercase tracking-[0.35em] text-emerald-200/80">
             Your Hand
           </p>
-          <p class="text-xs uppercase tracking-[0.35em] text-ink-300/70">
-            {{ hasSelection ? selectedIndices.size : 0 }} selected
-          </p>
+          <div class="flex items-center gap-3 text-xs uppercase tracking-[0.35em] text-ink-300/70">
+            <span>{{ handCards.length }} cards</span>
+            <span>{{ hasSelection ? selectedIndices.size : 0 }} selected</span>
+          </div>
         </div>
-        <div class="mt-4 flex max-w-full gap-3 overflow-x-auto pb-3">
+        <div #handScroll class="mt-4 flex max-w-full items-end overflow-x-auto pb-3">
           @for (card of handCards; track $index) {
             <button
               (click)="toggleSelectCard($index)"
               class="relative shrink-0 transition"
-              [class.translate-y-0]="!isSelected($index)"
               [class.-translate-y-3]="isSelected($index)"
+              [class.-ml-10]="$index > 0"
             >
               <span
                 class="absolute inset-0 rounded-2xl ring-2 ring-gold-300/70 opacity-0 transition"
@@ -104,6 +125,51 @@
               ></span>
               <app-card [suit]="card.suit" [rank]="card.rank"></app-card>
             </button>
+          }
+        </div>
+
+        <div
+          class="mt-4 rounded-2xl border border-emerald-400/20 bg-felt-950/60 px-4 py-4"
+          (pointerdown)="onSliderPointerDown($event)"
+          (pointermove)="onSliderPointerMove($event)"
+          (pointerup)="onSliderPointerUp()"
+          (pointercancel)="onSliderPointerUp()"
+        >
+          <div class="flex items-center justify-between text-[0.6rem] uppercase tracking-[0.35em] text-ink-300/70">
+            <span>Swipe to Select</span>
+            <span>Swipe Up to Commit</span>
+          </div>
+          <input
+            type="range"
+            class="mt-3 w-full accent-emerald-400"
+            [min]="0"
+            [max]="handCards.length > 0 ? handCards.length - 1 : 0"
+            [value]="sliderIndex"
+            (input)="onSliderChange($any($event.target).value)"
+            [disabled]="!isCurrentPlayerTurn || hasCommitted"
+          />
+          <div class="mt-3 flex flex-wrap gap-2">
+            @for (card of handCards; track $index) {
+              <span
+                class="h-2 w-2 rounded-full border border-emerald-300/50"
+                [class.bg-emerald-400]="selectedIndices.has($index)"
+                [class.border-gold-300]="$index === sliderIndex"
+              ></span>
+            }
+          </div>
+          <div class="mt-4 flex flex-wrap items-center justify-between gap-3 text-[0.65rem] uppercase tracking-[0.35em] text-ink-300/70">
+            <span>Selected {{ selectedIndices.size }} / {{ maxLayCount }}</span>
+            <button
+              (click)="clearSelection()"
+              class="rounded-full border border-emerald-400/30 px-3 py-1 text-[0.6rem] uppercase tracking-[0.35em] text-emerald-200 hover:border-emerald-200"
+            >
+              Clear
+            </button>
+          </div>
+          @if (hasCommitted) {
+            <p class="mt-3 text-xs uppercase tracking-[0.35em] text-gold-200/80">
+              Cards committed. Press Lay to play.
+            </p>
           }
         </div>
       </div>
@@ -143,6 +209,47 @@
           </div>
         }
       </div>
+      <div class="mt-8 grid gap-3 sm:grid-cols-2">
+        <button
+          (click)="openLeaveConfirm()"
+          class="rounded-2xl border border-gold-300/60 bg-felt-950/70 px-4 py-3 text-sm font-semibold uppercase tracking-[0.35em] text-gold-100 transition hover:-translate-y-[1px] hover:border-gold-200 hover:bg-felt-900"
+        >
+          Leave Game
+        </button>
+        <button
+          (click)="endGame()"
+          [disabled]="!isHost"
+          class="rounded-2xl border border-emerald-300/40 bg-felt-950/60 px-4 py-3 text-sm font-semibold uppercase tracking-[0.35em] text-emerald-200 transition hover:border-emerald-200 hover:bg-felt-900 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          End Game (Host)
+        </button>
+      </div>
     </div>
   </div>
 </div>
+
+@if (showLeaveConfirm) {
+  <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-6 backdrop-blur-sm">
+    <div class="w-full max-w-sm rounded-3xl border border-emerald-400/30 bg-felt-900/90 p-6 text-center shadow-[0_30px_80px_-40px_rgba(0,0,0,0.85)]">
+      <p class="text-xs uppercase tracking-[0.35em] text-emerald-200/80">Confirm</p>
+      <h3 class="mt-3 text-2xl font-semibold text-ink-50">Leave Game?</h3>
+      <p class="mt-2 text-sm text-ink-200/80">
+        You’ll return to the lobby and lose your current turn.
+      </p>
+      <div class="mt-6 grid gap-3 sm:grid-cols-2">
+        <button
+          (click)="closeLeaveConfirm()"
+          class="rounded-2xl border border-emerald-300/40 bg-felt-950/60 px-4 py-3 text-sm font-semibold uppercase tracking-[0.35em] text-emerald-200 transition hover:border-emerald-200 hover:bg-felt-900"
+        >
+          Cancel
+        </button>
+        <button
+          (click)="leaveGame()"
+          class="rounded-2xl border border-gold-300/60 bg-gold-400/10 px-4 py-3 text-sm font-semibold uppercase tracking-[0.35em] text-gold-100 transition hover:border-gold-200 hover:bg-gold-400/20"
+        >
+          Leave
+        </button>
+      </div>
+    </div>
+  </div>
+}
