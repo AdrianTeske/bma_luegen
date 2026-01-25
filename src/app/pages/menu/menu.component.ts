@@ -1,14 +1,13 @@
 import { Component, inject } from '@angular/core';
 import { Suit } from '../../api/types/suit';
 import { Rank } from '../../api/types/rank';
-import { CardComponent } from '../../components/card/card.component';
 import { SupabaseService } from '../../services/supabase.service';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 
 @Component({
   selector: 'app-menu',
-  imports: [CardComponent, FormsModule],
+  imports: [FormsModule],
   templateUrl: './menu.component.html',
   styleUrl: './menu.component.scss',
 })

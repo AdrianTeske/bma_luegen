@@ -43,6 +43,11 @@ export class LobbyJoinComponent {
       this.supabaseService.joinCode.set(
         this.joinCode.trim().toUpperCase().replace(/\s+/g, '')
       );
+      localStorage.setItem(
+        'lobbyJoinCode',
+        this.joinCode.trim().toUpperCase().replace(/\s+/g, '')
+      );
+      localStorage.setItem('lobbyId', lobbyId);
     }
 
     this.isResolving = false;

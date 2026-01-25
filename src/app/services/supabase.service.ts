@@ -42,6 +42,10 @@ export class SupabaseService {
     }
   }
 
+  getClient() {
+    return this.supabase;
+  }
+
   async fetchUser() {
     const {
       data: { user },
@@ -186,6 +190,10 @@ export class SupabaseService {
 
     if (joinCode) {
       this.joinCode.set(joinCode);
+      localStorage.setItem('lobbyJoinCode', joinCode);
+      if (lobbyId) {
+        localStorage.setItem('lobbyId', lobbyId);
+      }
     }
 
     return { lobbyId, joinCode };
@@ -265,12 +273,58 @@ export class SupabaseService {
 
     const { data, error } = await this.supabase.functions.invoke('start-round', {
       method: 'POST',
-      body: JSON.stringify({ game_id: gameId }),
+      body: JSON.stringify({ game_uuid: gameId }),
       headers,
     });
 
     if (error) {
       console.error('Error starting round:', error);
+    }
+
+    return data;
+  }
+
+  async turnAction(params: {
+    gameId: string;
+    cards?: Array<{ suit: string; rank: string }>;
+    declaredRank?: string | null;
+    callLiar?: boolean;
+  }) {
+    const headers = await this.authHeaders();
+    const body = {
+      game_uuid: params.gameId,
+      cards_json: params.cards ?? null,
+      rank_text: params.declaredRank ?? null,
+      call_liar_bool: params.callLiar ?? false,
+    };
+
+    const { data, error } = await this.supabase.functions.invoke('turn-action', {
+      method: 'POST',
+      body: JSON.stringify(body),
+      headers,
+    });
+
+    if (error) {
+      console.error('Error executing turn action:', error);
+    }
+
+    return data;
+  }
+
+  async joinLobby(gameId: string) {
+    const headers = await this.authHeaders();
+    const body = {
+      game_uuid: gameId,
+    };
+
+    const { data, error } = await this.supabase.functions.invoke('join-lobby', {
+      method: 'POST',
+      body: JSON.stringify(body),
+      headers,
+    });
+
+    if (error) {
+      console.error('Error joining lobby:', error);
     }
 
     return data;
@@ -290,5 +344,7 @@ export class SupabaseService {
     this.lobbyId.set('');
     this.joinCode.set('');
     this.hostId.set('');
+    localStorage.removeItem('lobbyJoinCode');
+    localStorage.removeItem('lobbyId');
   }
 }

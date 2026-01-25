@@ -82,7 +82,8 @@
       <div class="mt-10 grid gap-4 sm:grid-cols-2">
         <button
           (click)="startRound()"
-          class="group relative overflow-hidden rounded-2xl bg-gradient-to-br from-emerald-400 via-emerald-500 to-emerald-600 px-6 py-3 text-lg font-semibold text-ink-950 shadow-[0_18px_30px_-20px_rgba(34,197,94,0.85)] transition hover:translate-y-[-1px] hover:from-emerald-300 hover:via-emerald-400 hover:to-emerald-500"
+          [disabled]="!isHost"
+          class="group relative overflow-hidden rounded-2xl bg-gradient-to-br from-emerald-400 via-emerald-500 to-emerald-600 px-6 py-3 text-lg font-semibold text-ink-950 shadow-[0_18px_30px_-20px_rgba(34,197,94,0.85)] transition hover:translate-y-[-1px] hover:from-emerald-300 hover:via-emerald-400 hover:to-emerald-500 disabled:cursor-not-allowed disabled:opacity-60"
         >
           <span class="relative z-10">Start Round</span>
           <span class="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.5),transparent_70%)] opacity-0 transition group-hover:opacity-100"></span>
@@ -94,6 +95,11 @@
           Leave Lobby
         </button>
       </div>
+      @if (!isHost) {
+        <p class="mt-4 text-center text-xs uppercase tracking-[0.35em] text-ink-300/70">
+          Only the host can start the round.
+        </p>
+      }
     </div>
 
     <p class="text-center text-xs uppercase tracking-[0.35em] text-ink-300/70">
