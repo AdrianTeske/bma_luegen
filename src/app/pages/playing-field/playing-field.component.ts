@@ -65,8 +65,7 @@ export class PlayingFieldComponent {
   private sessionChannel?: RealtimeChannel;
   private redirecting = false;
   showLeaveConfirm = false;
-  private awaitingTurnAdvance = false;
-  private lastKnownTurnOrder: number | null = null;
+  private actionInFlight = false;
 
   get ranks() {
     return Object.values(Rank);
@@ -124,6 +123,7 @@ export class PlayingFieldComponent {
             .filter(Boolean) as Array<{ suit: Suit; rank: Rank }>)
         : [];
       this.game = { ...(data as GameRow), stack: normalizedStack };
+      this.logStackState();
       if (this.game?.status && this.game.status !== 'playing') {
         await this.navigateToLobby();
       }
@@ -154,6 +154,7 @@ export class PlayingFieldComponent {
         { event: '*', schema: 'public', table: 'game', filter: `id=eq.${this.gameId}` },
         async () => {
           await this.loadGame();
+          await this.loadSessions();
           this.updateDerivedState();
         }
       )
@@ -185,14 +186,18 @@ export class PlayingFieldComponent {
     if (newCurrentId && newCurrentId !== this.currentTurnPlayerId) {
       this.currentTurnPlayerId = newCurrentId;
       this.resetTurnTimer();
-      this.awaitingTurnAdvance = false;
     }
-    if (this.lastKnownTurnOrder !== null && currentTurnOrder !== this.lastKnownTurnOrder) {
-      this.awaitingTurnAdvance = false;
-    }
-    this.lastKnownTurnOrder = currentTurnOrder;
+    void currentTurnOrder;
 
     const currentUserId = this.currentUserId;
+
+    const roundResolved =
+      this.game?.last_turn === null && this.game?.rank === null;
+    if (roundResolved) {
+      this.pendingPlayed = {};
+      this.selectedIndices.clear();
+      this.committedIndices.clear();
+    }
 
     console.log(this.sessions);
     console.log(this.currentUserId);
@@ -206,9 +211,12 @@ export class PlayingFieldComponent {
       .map((card) => this.normalizeCard(card))
       .filter(Boolean) as Array<{ suit: Suit; rank: Rank }>;
 
+    console.log('serverHand raw', ownSession?.hand ?? []);
+    console.log('serverHand normalized', serverHand);
     this.handCards = this.applyPendingRemovals(serverHand);
     this.handCards = this.sortHand(this.handCards);
     this.prunePendingRemovals(serverHand);
+    console.log('handCards final', this.handCards);
 
     if (!this.isCurrentPlayerTurn) {
       this.selectedIndices.clear();
@@ -265,6 +273,11 @@ export class PlayingFieldComponent {
     }));
   }
 
+  private logStackState() {
+    console.log('stack raw', this.game?.stack ?? []);
+    console.log('stack count', this.stackCount);
+  }
+
   get orderedSessions() {
     return [...this.sessions].sort(
       (a, b) => this.toNumber(a.turn_order) - this.toNumber(b.turn_order)
@@ -288,13 +301,7 @@ export class PlayingFieldComponent {
   }
 
   get primaryActionLabel() {
-    if (this.stackCount > 0) {
-      if (!this.hasSelection && !this.hasCommitted) {
-        return 'Call Bullshit';
-      }
-      return this.hasCommitted ? 'Lay Cards' : 'Lie';
-    }
-    return this.hasCommitted ? 'Lay Cards' : 'Lie';
+    return this.hasCommitted ? 'Lay Cards' : 'Lay';
   }
 
   get showDeclaredRankSelect() {
@@ -310,24 +317,26 @@ export class PlayingFieldComponent {
     );
   }
 
-  get primaryActionDisabled() {
-    if (!this.isCurrentPlayerTurn) {
-      return true;
-    }
-    if (this.awaitingTurnAdvance) {
-      return true;
-    }
-    if (this.stackCount === 0 && !this.hasSelection && !this.hasCommitted) {
-      return true;
-    }
-    if (!this.hasSelection && !this.hasCommitted && this.stackCount > 0) {
-      return false;
-    }
-    return false;
+  get canCallBullshit() {
+    return (
+      this.stackCount > 0 &&
+      this.isCurrentPlayerTurn &&
+      !this.actionInFlight &&
+      !this.hasSelection &&
+      !this.hasCommitted
+    );
   }
 
-  get isAwaitingTurnAdvance() {
-    return this.awaitingTurnAdvance;
+  get canLay() {
+    return (
+      this.isCurrentPlayerTurn &&
+      !this.actionInFlight &&
+      (this.hasSelection || this.hasCommitted)
+    );
+  }
+
+  get isActionInFlight() {
+    return this.actionInFlight;
   }
 
   get hasSelection() {
@@ -376,23 +385,39 @@ export class PlayingFieldComponent {
     return this.selectedIndices.has(index);
   }
 
-  async primaryAction() {
+  async callBullshit() {
     if (!this.isCurrentPlayerTurn) {
       return;
     }
-    if (this.awaitingTurnAdvance) {
+    if (this.actionInFlight) {
       return;
     }
-    if (this.stackCount > 0 && !this.hasSelection && !this.hasCommitted) {
+    if (!this.canCallBullshit) {
+      return;
+    }
+    this.actionInFlight = true;
+    try {
       await this.supabaseService.turnAction({
         gameId: this.gameId,
         callLiar: true,
       });
-      this.awaitingTurnAdvance = true;
+    } catch (error) {
+      console.error('Call Bullshit failed:', error);
+    } finally {
+      this.actionInFlight = false;
+    }
+  }
+
+  async primaryAction() {
+    if (!this.isCurrentPlayerTurn) {
       return;
     }
-
+    if (this.actionInFlight) {
+      return;
+    }
+    this.actionInFlight = true;
     if (!this.hasSelection && !this.hasCommitted) {
+      this.actionInFlight = false;
       return;
     }
 
@@ -405,21 +430,25 @@ export class PlayingFieldComponent {
       (index) => this.handCards[index]
     );
 
-    await this.supabaseService.turnAction({
-      gameId: this.gameId,
-      cards: cards.map((card) => ({
-        suit: this.toDbSuit(card.suit),
-        rank: this.toDbRank(card.rank),
-      })),
-      declaredRank: this.toDbRank(this.selectedRank),
-      callLiar: false,
-    });
-
-    this.trackPendingRemovals(cards);
-    this.removeCardsFromHand(this.committedIndices);
-    this.selectedIndices.clear();
-    this.committedIndices.clear();
-    this.awaitingTurnAdvance = true;
+    try {
+      await this.supabaseService.turnAction({
+        gameId: this.gameId,
+        cards: cards.map((card) => ({
+          suit: this.toDbSuit(card.suit),
+          rank: this.toDbRank(card.rank),
+        })),
+        declaredRank: this.toDbRank(this.selectedRank),
+        callLiar: false,
+      });
+      this.trackPendingRemovals(cards);
+      this.removeCardsFromHand(this.committedIndices);
+      this.selectedIndices.clear();
+      this.committedIndices.clear();
+    } catch (error) {
+      console.error('Lay cards failed:', error);
+    } finally {
+      this.actionInFlight = false;
+    }
   }
 
   private getCurrentTurnSession() {

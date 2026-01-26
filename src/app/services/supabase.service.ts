@@ -291,13 +291,16 @@ export class SupabaseService {
     callLiar?: boolean;
   }) {
     const headers = await this.authHeaders();
+    const requestId = crypto.randomUUID();
     const body = {
       game_uuid: params.gameId,
       cards_json: params.cards ?? null,
       rank_text: params.declaredRank ?? null,
       call_liar_bool: params.callLiar ?? false,
+      _request_id: requestId,
     };
 
+    console.log('turnAction send', requestId, body);
     const { data, error } = await this.supabase.functions.invoke('turn-action', {
       method: 'POST',
       body: JSON.stringify(body),
@@ -306,6 +309,7 @@ export class SupabaseService {
 
     if (error) {
       console.error('Error executing turn action:', error);
+      throw new Error(error.message ?? 'Turn action failed');
     }
 
     return data;
