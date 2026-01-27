@@ -660,6 +660,13 @@ export class PlayingFieldComponent {
     }
     const playerId = this.currentUserId;
     if (playerId) {
+      try {
+        await this.supabaseService
+          .getClient()
+          .rpc('discard_hand', { _game: this.gameId, _player: playerId });
+      } catch (error) {
+        console.error('Discard hand failed:', error);
+      }
       await this.supabaseService
         .getClient()
         .from('session')
@@ -671,7 +678,11 @@ export class PlayingFieldComponent {
     this.game = null;
     this.sessions = [];
     this.supabaseService.lobbyId.set('');
-    await this.navigateToLobby();
+    this.supabaseService.joinCode.set('');
+    this.supabaseService.hostId.set('');
+    localStorage.removeItem('lobbyId');
+    localStorage.removeItem('lobbyJoinCode');
+    await this.router.navigate(['/menu']);
   }
 
   openLeaveConfirm() {

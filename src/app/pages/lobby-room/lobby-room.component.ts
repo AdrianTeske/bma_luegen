@@ -16,9 +16,11 @@ export class LobbyRoomComponent {
   copyState = '';
   private gameChannel?: RealtimeChannel;
   gameStatus = 'standby';
+  private skipAutoJoin = false;
 
   async ngOnInit() {
     const lobbyId = this.route.snapshot.paramMap.get('id');
+    this.skipAutoJoin = this.route.snapshot.queryParamMap.get('left') === '1';
     if (lobbyId) {
       this.supabaseService.lobbyId.set(lobbyId);
     }
@@ -32,8 +34,10 @@ export class LobbyRoomComponent {
     }
     const activeLobbyId = this.supabaseService.lobbyId();
     if (activeLobbyId) {
-      await this.supabaseService.joinLobby(activeLobbyId);
-      await this.supabaseService.startLobbyPresence(activeLobbyId);
+      if (!this.skipAutoJoin) {
+        await this.supabaseService.joinLobby(activeLobbyId);
+        await this.supabaseService.startLobbyPresence(activeLobbyId);
+      }
       await this.loadGame(activeLobbyId);
       await this.subscribeGame(activeLobbyId);
     }
@@ -86,7 +90,11 @@ export class LobbyRoomComponent {
     if (!error && data) {
       this.supabaseService.hostId.set(data.host ?? '');
       this.gameStatus = data.status ?? 'standby';
-      if (this.gameStatus === 'playing') {
+      if (
+        this.gameStatus === 'playing' &&
+        !this.skipAutoJoin &&
+        (await this.isPlayerInLobby(lobbyId))
+      ) {
         await this.router.navigate(['/play'], {
           queryParams: { lobbyId },
         });
@@ -109,7 +117,11 @@ export class LobbyRoomComponent {
           if (next?.status) {
             this.gameStatus = next.status;
           }
-          if (this.gameStatus === 'playing') {
+          if (
+            this.gameStatus === 'playing' &&
+            !this.skipAutoJoin &&
+            (await this.isPlayerInLobby(lobbyId))
+          ) {
             await this.router.navigate(['/play'], {
               queryParams: { lobbyId },
             });
@@ -117,6 +129,24 @@ export class LobbyRoomComponent {
         }
       )
       .subscribe();
+  }
+
+  private async isPlayerInLobby(lobbyId: string) {
+    const playerId =
+      this.supabaseService.player().id ||
+      this.supabaseService.session()?.user?.id ||
+      '';
+    if (!playerId) {
+      return false;
+    }
+    const { data, error } = await this.supabaseService
+      .getClient()
+      .from('session_public')
+      .select('player_id')
+      .eq('game_id', lobbyId)
+      .eq('player_id', playerId)
+      .maybeSingle();
+    return !error && !!data;
   }
 
   async copyJoinCode() {
