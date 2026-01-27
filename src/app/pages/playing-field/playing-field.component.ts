@@ -12,6 +12,7 @@ type GameRow = {
   host: string | null;
   stack: Array<{ suit: string; rank: string }>;
   rank: string | null;
+  discarded_cards?: Array<string> | null;
   turn_order: number | string | null;
   last_turn: string | null;
   status: string;
@@ -60,6 +61,7 @@ export class PlayingFieldComponent {
   private sessionChannel?: RealtimeChannel;
   private redirecting = false;
   showLeaveConfirm = false;
+  showMenu = false;
   private actionInFlight = false;
   showEndSplash = false;
   endCountdown = 10;
@@ -112,7 +114,9 @@ export class PlayingFieldComponent {
     const { data, error } = await this.supabaseService
       .getClient()
       .from('game')
-      .select('id, host, stack, rank, turn_order, last_turn, status, decks')
+      .select(
+        'id, host, stack, rank, discarded_cards, turn_order, last_turn, status, decks'
+      )
       .eq('id', this.gameId)
       .single();
 
@@ -123,7 +127,15 @@ export class PlayingFieldComponent {
             .map((card) => this.normalizeCard(card as any))
             .filter(Boolean) as Array<{ suit: Suit; rank: Rank }>)
         : [];
-      this.game = { ...(data as GameRow), stack: normalizedStack };
+      const rawDiscarded = (data as GameRow as any)?.discarded_cards ?? [];
+      const normalizedDiscarded = Array.isArray(rawDiscarded)
+        ? rawDiscarded.filter((rank) => typeof rank === 'string')
+        : [];
+      this.game = {
+        ...(data as GameRow),
+        stack: normalizedStack,
+        discarded_cards: normalizedDiscarded,
+      };
       this.logStackState();
       if (this.game?.status && this.game.status === 'standby') {
         await this.navigateToLobby();
@@ -308,6 +320,21 @@ export class PlayingFieldComponent {
 
   get declaredRankLabel() {
     return this.game?.rank ? this.rankLabel(this.game.rank) : 'Any';
+  }
+
+  get discardedRankLabel() {
+    const discarded = this.game?.discarded_cards ?? [];
+    const lastDiscarded = discarded[discarded.length - 1];
+    if (lastDiscarded) {
+      return this.rankAcronym(lastDiscarded);
+    }
+    return '--';
+  }
+
+  get discardedRankList() {
+    return (this.game?.discarded_cards ?? []).map((rank) =>
+      this.rankAcronym(rank)
+    );
   }
 
   get primaryActionLabel() {
@@ -655,6 +682,14 @@ export class PlayingFieldComponent {
     this.showLeaveConfirm = false;
   }
 
+  openMenu() {
+    this.showMenu = true;
+  }
+
+  closeMenu() {
+    this.showMenu = false;
+  }
+
   async endGame() {
     if (!this.gameId || !this.isHost) {
       return;
@@ -874,6 +909,40 @@ export class PlayingFieldComponent {
         return 'Three';
       case Rank.Two:
         return 'Two';
+      default:
+        return value;
+    }
+  }
+
+  rankAcronym(value: string) {
+    const rank = this.toRank(value) ?? value;
+    switch (rank) {
+      case Rank.Ace:
+        return 'A';
+      case Rank.King:
+        return 'K';
+      case Rank.Queen:
+        return 'Q';
+      case Rank.Jack:
+        return 'J';
+      case Rank.Ten:
+        return '10';
+      case Rank.Nine:
+        return '9';
+      case Rank.Eight:
+        return '8';
+      case Rank.Seven:
+        return '7';
+      case Rank.Six:
+        return '6';
+      case Rank.Five:
+        return '5';
+      case Rank.Four:
+        return '4';
+      case Rank.Three:
+        return '3';
+      case Rank.Two:
+        return '2';
       default:
         return value;
     }
