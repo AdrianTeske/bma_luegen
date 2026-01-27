@@ -25,11 +25,11 @@ export class LobbyJoinComponent {
     const code = this.route.snapshot.paramMap.get('code');
     if (code) {
       this.joinCode = code;
-      await this.resolveCode();
+      await this.joinLobby();
     }
   }
 
-  async resolveCode() {
+  private async resolveCode() {
     this.isResolving = true;
     this.errorMessage = '';
     this.resolvedLobbyId = '';
@@ -54,6 +54,11 @@ export class LobbyJoinComponent {
   }
 
   async joinLobby() {
+    if (!this.joinCode.trim()) {
+      this.errorMessage = 'Please enter a join code.';
+      return;
+    }
+    await this.resolveCode();
     if (!this.resolvedLobbyId) {
       return;
     }

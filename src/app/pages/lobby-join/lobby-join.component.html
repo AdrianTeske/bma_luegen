@@ -30,29 +30,16 @@
         </p>
       }
 
-      @if (resolvedLobbyId) {
-        <div class="mt-5 rounded-2xl border border-emerald-300/30 bg-felt-950/60 px-4 py-3 text-sm text-emerald-100">
-          Lobby resolved: <span class="font-semibold">{{ resolvedLobbyId }}</span>
-        </div>
-      }
-
-      <div class="mt-10 grid gap-4 sm:grid-cols-2">
-        <button
-          (click)="resolveCode()"
-          [disabled]="isResolving"
-          class="group relative overflow-hidden rounded-2xl bg-gradient-to-br from-emerald-400 via-emerald-500 to-emerald-600 px-6 py-3 text-lg font-semibold text-ink-950 shadow-[0_18px_30px_-20px_rgba(34,197,94,0.85)] transition hover:translate-y-[-1px] hover:from-emerald-300 hover:via-emerald-400 hover:to-emerald-500 disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          <span class="relative z-10">
-            {{ isResolving ? 'Checking...' : 'Resolve Code' }}
-          </span>
-          <span class="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.5),transparent_70%)] opacity-0 transition group-hover:opacity-100"></span>
-        </button>
+      <div class="mt-10">
         <button
           (click)="joinLobby()"
-          [disabled]="!resolvedLobbyId"
-          class="rounded-2xl border border-gold-300/60 bg-felt-950/70 px-6 py-3 text-lg font-semibold text-gold-100 shadow-[0_14px_24px_-18px_rgba(250,204,21,0.6)] transition hover:-translate-y-[1px] hover:border-gold-200 hover:bg-felt-900 disabled:cursor-not-allowed disabled:opacity-50"
+          [disabled]="isResolving"
+          class="group relative w-full overflow-hidden rounded-2xl bg-gradient-to-br from-emerald-400 via-emerald-500 to-emerald-600 px-6 py-3 text-lg font-semibold text-ink-950 shadow-[0_18px_30px_-20px_rgba(34,197,94,0.85)] transition hover:translate-y-[-1px] hover:from-emerald-300 hover:via-emerald-400 hover:to-emerald-500 disabled:cursor-not-allowed disabled:opacity-60"
         >
-          Enter Lobby
+          <span class="relative z-10">
+            {{ isResolving ? 'Joining...' : 'Join Lobby' }}
+          </span>
+          <span class="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.5),transparent_70%)] opacity-0 transition group-hover:opacity-100"></span>
         </button>
       </div>
     </div>

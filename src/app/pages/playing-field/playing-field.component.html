@@ -113,7 +113,7 @@
             <span>{{ hasSelection ? selectedIndices.size : 0 }} selected</span>
           </div>
         </div>
-        <div #handScroll class="mt-4 flex max-w-full items-end overflow-x-auto pb-3">
+        <div class="mt-4 flex max-w-full items-end overflow-x-auto pb-3">
           @for (card of handCards; track $index) {
             <button
               (click)="toggleSelectCard($index)"
@@ -127,51 +127,6 @@
               ></span>
               <app-card [suit]="card.suit" [rank]="card.rank"></app-card>
             </button>
-          }
-        </div>
-
-        <div
-          class="mt-4 rounded-2xl border border-emerald-400/20 bg-felt-950/60 px-4 py-4"
-          (pointerdown)="onSliderPointerDown($event)"
-          (pointermove)="onSliderPointerMove($event)"
-          (pointerup)="onSliderPointerUp()"
-          (pointercancel)="onSliderPointerUp()"
-        >
-          <div class="flex items-center justify-between text-[0.6rem] uppercase tracking-[0.35em] text-ink-300/70">
-            <span>Swipe to Select</span>
-            <span>Swipe Up to Commit</span>
-          </div>
-          <input
-            type="range"
-            class="mt-3 w-full accent-emerald-400"
-            [min]="0"
-            [max]="handCards.length > 0 ? handCards.length - 1 : 0"
-            [value]="sliderIndex"
-            (input)="onSliderChange($any($event.target).value)"
-            [disabled]="!isCurrentPlayerTurn || hasCommitted"
-          />
-          <div class="mt-3 flex flex-wrap gap-2">
-            @for (card of handCards; track $index) {
-              <span
-                class="h-2 w-2 rounded-full border border-emerald-300/50"
-                [class.bg-emerald-400]="selectedIndices.has($index)"
-                [class.border-gold-300]="$index === sliderIndex"
-              ></span>
-            }
-          </div>
-          <div class="mt-4 flex flex-wrap items-center justify-between gap-3 text-[0.65rem] uppercase tracking-[0.35em] text-ink-300/70">
-            <span>Selected {{ selectedIndices.size }} / {{ maxLayCount }}</span>
-            <button
-              (click)="clearSelection()"
-              class="rounded-full border border-emerald-400/30 px-3 py-1 text-[0.6rem] uppercase tracking-[0.35em] text-emerald-200 hover:border-emerald-200"
-            >
-              Clear
-            </button>
-          </div>
-          @if (hasCommitted) {
-            <p class="mt-3 text-xs uppercase tracking-[0.35em] text-gold-200/80">
-              Cards committed. Press Lay to play.
-            </p>
           }
         </div>
       </div>
@@ -229,6 +184,19 @@
     </div>
   </div>
 </div>
+
+@if (showEndSplash) {
+  <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-6 backdrop-blur-sm">
+    <div class="w-full max-w-md rounded-3xl border border-emerald-400/30 bg-felt-900/90 p-6 text-center shadow-[0_30px_80px_-40px_rgba(0,0,0,0.85)]">
+      <h3 class="text-3xl font-semibold text-ink-50">
+        Round Finished
+      </h3>
+      <p class="mt-3 text-sm text-ink-200/80">
+        Returning to lobby in {{ endCountdown }}s
+      </p>
+    </div>
+  </div>
+}
 
 @if (showLeaveConfirm) {
   <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-6 backdrop-blur-sm">

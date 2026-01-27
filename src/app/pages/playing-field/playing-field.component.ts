@@ -1,4 +1,4 @@
-import { Component, ElementRef, inject, ViewChild } from '@angular/core';
+import { Component, inject } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { RealtimeChannel } from '@supabase/supabase-js';
 import { FormsModule } from '@angular/forms';
@@ -16,6 +16,7 @@ type GameRow = {
   last_turn: string | null;
   status: string;
   decks: number | string | null;
+  loser?: string | null;
 };
 
 type SessionRow = {
@@ -45,13 +46,7 @@ export class PlayingFieldComponent {
   sessions: SessionRow[] = [];
   handCards: Array<{ suit: Suit; rank: Rank }> = [];
   selectedIndices = new Set<number>();
-  committedIndices = new Set<number>();
-  sliderIndex = 0;
-  private sliderStartY: number | null = null;
-  private sliderActive = false;
-  private sliderCommitted = false;
   private pendingPlayed: Record<string, number> = {};
-  @ViewChild('handScroll') handScroll?: ElementRef<HTMLDivElement>;
   selectedRank: Rank = Rank.Ace;
 
   turnSeconds = 60;
@@ -66,6 +61,9 @@ export class PlayingFieldComponent {
   private redirecting = false;
   showLeaveConfirm = false;
   private actionInFlight = false;
+  showEndSplash = false;
+  endCountdown = 10;
+  private endTimerInterval?: number;
 
   get ranks() {
     return Object.values(Rank);
@@ -98,6 +96,9 @@ export class PlayingFieldComponent {
     if (this.timerInterval) {
       window.clearInterval(this.timerInterval);
     }
+    if (this.endTimerInterval) {
+      window.clearInterval(this.endTimerInterval);
+    }
     await this.supabaseService.stopLobbyPresence();
   }
 
@@ -124,7 +125,7 @@ export class PlayingFieldComponent {
         : [];
       this.game = { ...(data as GameRow), stack: normalizedStack };
       this.logStackState();
-      if (this.game?.status && this.game.status !== 'playing') {
+      if (this.game?.status && this.game.status === 'standby') {
         await this.navigateToLobby();
       }
     }
@@ -196,7 +197,16 @@ export class PlayingFieldComponent {
     if (roundResolved) {
       this.pendingPlayed = {};
       this.selectedIndices.clear();
-      this.committedIndices.clear();
+    }
+
+    if (this.game?.status === 'finished') {
+      this.startEndSplash();
+    } else if (this.showEndSplash) {
+      this.showEndSplash = false;
+      if (this.endTimerInterval) {
+        window.clearInterval(this.endTimerInterval);
+        this.endTimerInterval = undefined;
+      }
     }
 
     console.log(this.sessions);
@@ -301,7 +311,7 @@ export class PlayingFieldComponent {
   }
 
   get primaryActionLabel() {
-    return this.hasCommitted ? 'Lay Cards' : 'Lay';
+    return this.hasSelection ? 'Lay Cards' : 'Lay';
   }
 
   get showDeclaredRankSelect() {
@@ -312,7 +322,6 @@ export class PlayingFieldComponent {
     return (
       !this.showDeclaredRankSelect ||
       this.hasSelection ||
-      this.hasCommitted ||
       !this.isCurrentPlayerTurn
     );
   }
@@ -322,8 +331,7 @@ export class PlayingFieldComponent {
       this.stackCount > 0 &&
       this.isCurrentPlayerTurn &&
       !this.actionInFlight &&
-      !this.hasSelection &&
-      !this.hasCommitted
+      !this.hasSelection
     );
   }
 
@@ -331,7 +339,7 @@ export class PlayingFieldComponent {
     return (
       this.isCurrentPlayerTurn &&
       !this.actionInFlight &&
-      (this.hasSelection || this.hasCommitted)
+      this.hasSelection
     );
   }
 
@@ -341,10 +349,6 @@ export class PlayingFieldComponent {
 
   get hasSelection() {
     return this.selectedIndices.size > 0;
-  }
-
-  get hasCommitted() {
-    return this.committedIndices.size > 0;
   }
 
   get maxLayCount() {
@@ -366,9 +370,6 @@ export class PlayingFieldComponent {
     if (!this.isCurrentPlayerTurn) {
       return;
     }
-    if (this.hasCommitted) {
-      return;
-    }
     if (this.selectedIndices.has(index)) {
       this.selectedIndices.delete(index);
     } else {
@@ -377,7 +378,6 @@ export class PlayingFieldComponent {
       }
       this.selectedIndices.add(index);
     }
-    this.sliderIndex = index;
     this.ensureDeclaredRankValid();
   }
 
@@ -416,17 +416,12 @@ export class PlayingFieldComponent {
       return;
     }
     this.actionInFlight = true;
-    if (!this.hasSelection && !this.hasCommitted) {
+    if (!this.hasSelection) {
       this.actionInFlight = false;
       return;
     }
 
-    if (!this.hasCommitted) {
-      this.commitSelected();
-      return;
-    }
-
-    const cards = Array.from(this.committedIndices).map(
+    const cards = Array.from(this.selectedIndices).map(
       (index) => this.handCards[index]
     );
 
@@ -441,9 +436,8 @@ export class PlayingFieldComponent {
         callLiar: false,
       });
       this.trackPendingRemovals(cards);
-      this.removeCardsFromHand(this.committedIndices);
+      this.removeCardsFromHand(this.selectedIndices);
       this.selectedIndices.clear();
-      this.committedIndices.clear();
     } catch (error) {
       console.error('Lay cards failed:', error);
     } finally {
@@ -683,9 +677,36 @@ export class PlayingFieldComponent {
       return;
     }
     this.redirecting = true;
-    await this.router.navigate(['/menu']);
+    const lobbyId = this.gameId || this.supabaseService.lobbyId();
+    if (lobbyId) {
+      await this.router.navigate(['/lobby', lobbyId]);
+    } else {
+      await this.router.navigate(['/menu']);
+    }
     this.redirecting = false;
   }
+
+  private startEndSplash() {
+    if (this.showEndSplash) {
+      return;
+    }
+    this.showEndSplash = true;
+    this.endCountdown = 10;
+    if (this.endTimerInterval) {
+      window.clearInterval(this.endTimerInterval);
+    }
+    this.endTimerInterval = window.setInterval(() => {
+      this.endCountdown = Math.max(0, this.endCountdown - 1);
+      if (this.endCountdown <= 0) {
+        if (this.endTimerInterval) {
+          window.clearInterval(this.endTimerInterval);
+          this.endTimerInterval = undefined;
+        }
+        void this.navigateToLobby();
+      }
+    }, 1000);
+  }
+
 
   private sortHand(cards: Array<{ suit: Suit; rank: Rank }>) {
     const rankOrder: Rank[] = [
@@ -806,42 +827,8 @@ export class PlayingFieldComponent {
     }
   }
 
-  onSliderChange(value: string) {
-    if (!this.isCurrentPlayerTurn || this.hasCommitted) {
-      return;
-    }
-    const index = Math.max(0, Math.min(this.handCards.length - 1, Number(value)));
-    this.sliderIndex = index;
-    this.scrollHandToIndex(index);
-  }
-
-  commitSelected() {
-    if (!this.hasSelection || this.hasCommitted) {
-      return;
-    }
-    if (this.selectedIndices.size > this.maxLayCount) {
-      const trimmed = Array.from(this.selectedIndices).slice(0, this.maxLayCount);
-      this.selectedIndices = new Set(trimmed);
-    }
-    this.committedIndices = new Set(this.selectedIndices);
-    this.ensureDeclaredRankValid(true);
-  }
-
-  clearCommitted() {
-    this.committedIndices.clear();
-  }
-
-  handleSliderSwipeUp(deltaY: number) {
-    if (deltaY < -30) {
-      this.commitSelected();
-      this.sliderCommitted = true;
-    }
-  }
-
   clearSelection() {
     this.selectedIndices.clear();
-    this.committedIndices.clear();
-    this.sliderIndex = 0;
     this.ensureDeclaredRankValid();
   }
 
@@ -851,62 +838,6 @@ export class PlayingFieldComponent {
 
   get availableRanks() {
     return this.ranks.filter((rank) => rank !== Rank.Ace);
-  }
-
-  private scrollHandToIndex(index: number) {
-    const container = this.handScroll?.nativeElement;
-    if (!container) {
-      return;
-    }
-    const cards = Array.from(container.querySelectorAll('button'));
-    const card = cards[index] as HTMLElement | undefined;
-    if (!card) {
-      return;
-    }
-    const left = card.offsetLeft - container.clientWidth / 2 + card.clientWidth / 2;
-    container.scrollTo({ left, behavior: 'smooth' });
-  }
-
-  onSliderPointerDown(event: PointerEvent) {
-    if (!this.isCurrentPlayerTurn || this.hasCommitted) {
-      return;
-    }
-    this.sliderStartY = event.clientY;
-    this.sliderActive = true;
-    this.sliderCommitted = false;
-  }
-
-  onSliderPointerMove(event: PointerEvent) {
-    if (this.sliderStartY === null) {
-      return;
-    }
-    const deltaY = event.clientY - this.sliderStartY;
-    if (deltaY < -30) {
-      this.commitSelected();
-      this.sliderStartY = null;
-    }
-  }
-
-  onSliderPointerUp() {
-    if (this.sliderActive && !this.sliderCommitted) {
-      this.toggleSliderSelection();
-    }
-    this.sliderStartY = null;
-    this.sliderActive = false;
-    this.sliderCommitted = false;
-  }
-
-  private toggleSliderSelection() {
-    const index = this.sliderIndex;
-    if (!this.handCards[index]) {
-      return;
-    }
-    if (this.selectedIndices.has(index)) {
-      this.selectedIndices.delete(index);
-    } else if (this.selectedIndices.size < this.maxLayCount) {
-      this.selectedIndices.add(index);
-    }
-    this.ensureDeclaredRankValid();
   }
 
   private ensureDeclaredRankValid(force = false) {

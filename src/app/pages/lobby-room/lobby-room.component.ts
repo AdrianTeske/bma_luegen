@@ -86,7 +86,7 @@ export class LobbyRoomComponent {
     if (!error && data) {
       this.supabaseService.hostId.set(data.host ?? '');
       this.gameStatus = data.status ?? 'standby';
-      if (this.gameStatus !== 'standby') {
+      if (this.gameStatus === 'playing') {
         await this.router.navigate(['/play'], {
           queryParams: { lobbyId },
         });
@@ -109,7 +109,7 @@ export class LobbyRoomComponent {
           if (next?.status) {
             this.gameStatus = next.status;
           }
-          if (this.gameStatus !== 'standby') {
+          if (this.gameStatus === 'playing') {
             await this.router.navigate(['/play'], {
               queryParams: { lobbyId },
             });
