@@ -48,7 +48,7 @@ export class PlayingFieldComponent {
   handCards: Array<{ suit: Suit; rank: Rank }> = [];
   selectedIndices = new Set<number>();
   private pendingPlayed: Record<string, number> = {};
-  selectedRank: Rank = Rank.Ace;
+  selectedRank: Rank | null = null;
 
   turnSeconds = 60;
   remainingSeconds = 60;
@@ -66,6 +66,7 @@ export class PlayingFieldComponent {
   showEndSplash = false;
   endCountdown = 10;
   private endTimerInterval?: number;
+  private lastKnownRank: string | null = null;
 
   get ranks() {
     return Object.values(Rank);
@@ -115,7 +116,7 @@ export class PlayingFieldComponent {
       .getClient()
       .from('game')
       .select(
-        'id, host, stack, rank, discarded_cards, turn_order, last_turn, status, decks'
+        'id, host, stack, rank, discarded_cards, turn_order, last_turn, status, decks, loser'
       )
       .eq('id', this.gameId)
       .single();
@@ -244,8 +245,14 @@ export class PlayingFieldComponent {
       this.selectedIndices.clear();
     }
 
-    if (this.game?.rank) {
-      this.selectedRank = this.toRank(this.game.rank) ?? this.selectedRank;
+    const currentRank = this.game?.rank ?? null;
+    if (currentRank !== this.lastKnownRank) {
+      if (currentRank === null) {
+        this.selectedRank = null;
+      } else {
+        this.selectedRank = this.toRank(currentRank) ?? this.selectedRank;
+      }
+      this.lastKnownRank = currentRank;
     }
   }
 
@@ -345,14 +352,6 @@ export class PlayingFieldComponent {
     return this.isCurrentPlayerTurn && this.game?.rank === null;
   }
 
-  get isRankLocked() {
-    return (
-      !this.showDeclaredRankSelect ||
-      this.hasSelection ||
-      !this.isCurrentPlayerTurn
-    );
-  }
-
   get canCallBullshit() {
     return (
       this.stackCount > 0 &&
@@ -366,7 +365,8 @@ export class PlayingFieldComponent {
     return (
       this.isCurrentPlayerTurn &&
       !this.actionInFlight &&
-      this.hasSelection
+      this.hasSelection &&
+      (!this.showDeclaredRankSelect || !!this.selectedRank)
     );
   }
 
@@ -448,6 +448,11 @@ export class PlayingFieldComponent {
       return;
     }
 
+    if (this.showDeclaredRankSelect && !this.selectedRank) {
+      this.actionInFlight = false;
+      return;
+    }
+
     const cards = Array.from(this.selectedIndices).map(
       (index) => this.handCards[index]
     );
@@ -459,9 +464,11 @@ export class PlayingFieldComponent {
           suit: this.toDbSuit(card.suit),
           rank: this.toDbRank(card.rank),
         })),
-        declaredRank: this.toDbRank(this.selectedRank),
+        declaredRank: this.selectedRank ? this.toDbRank(this.selectedRank) : null,
         callLiar: false,
       });
+      await this.loadSessions();
+      this.updateDerivedState();
       this.trackPendingRemovals(cards);
       this.removeCardsFromHand(this.selectedIndices);
       this.selectedIndices.clear();
@@ -886,8 +893,8 @@ export class PlayingFieldComponent {
     return this.ranks.filter((rank) => rank !== Rank.Ace);
   }
 
-  private ensureDeclaredRankValid(force = false) {
-    if (this.hasAceSelected && (this.selectedRank === Rank.Ace || force)) {
+  private ensureDeclaredRankValid() {
+    if (this.hasAceSelected && this.selectedRank === Rank.Ace) {
       this.selectedRank = Rank.King;
     }
   }
@@ -895,34 +902,42 @@ export class PlayingFieldComponent {
   rankLabel(value: string) {
     switch (value) {
       case Rank.Ace:
-        return 'Ace';
+        return 'A';
       case Rank.King:
-        return 'King';
+        return 'K';
       case Rank.Queen:
-        return 'Queen';
+        return 'Q';
       case Rank.Jack:
-        return 'Jack';
+        return 'J';
       case Rank.Ten:
-        return 'Ten';
+        return '10';
       case Rank.Nine:
-        return 'Nine';
+        return '9';
       case Rank.Eight:
-        return 'Eight';
+        return '8';
       case Rank.Seven:
-        return 'Seven';
+        return '7';
       case Rank.Six:
-        return 'Six';
+        return '6';
       case Rank.Five:
-        return 'Five';
+        return '5';
       case Rank.Four:
-        return 'Four';
+        return '4';
       case Rank.Three:
-        return 'Three';
+        return '3';
       case Rank.Two:
-        return 'Two';
+        return '2';
       default:
         return value;
     }
+  }
+
+  get loserName() {
+    const loserId = this.game?.loser ?? '';
+    if (!loserId) {
+      return 'Unknown';
+    }
+    return this.getPlayerName(loserId);
   }
 
   rankAcronym(value: string) {
