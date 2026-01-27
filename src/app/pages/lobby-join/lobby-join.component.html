@@ -1,0 +1,51 @@
+<div class="relative min-h-screen overflow-hidden px-6 py-12">
+  <div class="mx-auto flex w-full max-w-4xl flex-col items-center gap-10">
+    <div class="text-center">
+      <p class="text-xs uppercase tracking-[0.5em] text-gold-200/70">Invite</p>
+      <h1 class="mt-4 text-4xl font-semibold tracking-wide text-ink-50 sm:text-5xl">
+        Join Lobby
+      </h1>
+      <p class="mt-3 max-w-xl text-sm text-ink-200/80">
+        Paste the join code from your host to jump into the table.
+      </p>
+    </div>
+
+    <div class="relative w-full max-w-xl rounded-3xl border border-emerald-500/30 bg-felt-900/70 p-8 shadow-[0_30px_80px_-40px_rgba(0,0,0,0.85)] backdrop-blur">
+      <div class="absolute -right-12 -top-12 h-28 w-28 rounded-full bg-emerald-500/20 blur-2xl"></div>
+      <div class="absolute -left-10 bottom-0 h-24 w-24 rounded-full bg-gold-400/20 blur-2xl"></div>
+
+      <label class="text-xs uppercase tracking-[0.35em] text-emerald-200/80">
+        Join Code
+      </label>
+      <input
+        type="text"
+        [(ngModel)]="joinCode"
+        placeholder="e.g. F7X9Q2"
+        class="mt-3 w-full rounded-2xl border border-emerald-400/40 bg-felt-950/70 px-4 py-3 text-lg uppercase tracking-[0.3em] text-ink-50 placeholder:text-ink-300/60 focus:border-gold-300/70 focus:outline-none focus:ring-2 focus:ring-gold-400/40"
+      />
+
+      @if (errorMessage) {
+        <p class="mt-4 text-sm text-gold-200/90">
+          {{ errorMessage }}
+        </p>
+      }
+
+      <div class="mt-10">
+        <button
+          (click)="joinLobby()"
+          [disabled]="isResolving"
+          class="group relative w-full overflow-hidden rounded-2xl bg-gradient-to-br from-emerald-400 via-emerald-500 to-emerald-600 px-6 py-3 text-lg font-semibold text-ink-950 shadow-[0_18px_30px_-20px_rgba(34,197,94,0.85)] transition hover:translate-y-[-1px] hover:from-emerald-300 hover:via-emerald-400 hover:to-emerald-500 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          <span class="relative z-10">
+            {{ isResolving ? 'Joining...' : 'Join Lobby' }}
+          </span>
+          <span class="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.5),transparent_70%)] opacity-0 transition group-hover:opacity-100"></span>
+        </button>
+      </div>
+    </div>
+
+    <p class="text-center text-xs uppercase tracking-[0.35em] text-ink-300/70">
+      Cards are waiting.
+    </p>
+  </div>
+</div>

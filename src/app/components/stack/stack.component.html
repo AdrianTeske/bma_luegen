@@ -1,0 +1,24 @@
+<div class="stack-container">
+    @for (card of cards(); track $index) {
+        <div class="stack-card" [style.transform]="'rotate(' + card.degree + 'deg)'" [style.top]="$index * 2 + 'px'" [style.left]="$index * 2 + 'px'">
+            <app-card [suit]="card.suit" [rank]="card.rank"></app-card>
+        </div>
+    }
+</div>
+
+<style>
+    .stack-container {
+        position: fixed;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%);
+        z-index: 1000;
+        max-width: 90vw;
+        padding-bottom: 10px;
+    }
+
+    .stack-card {
+        position: absolute;
+        transition: all 0.3s ease;
+    }
+</style>

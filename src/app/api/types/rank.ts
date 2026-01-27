@@ -1,0 +1,15 @@
+export enum Rank {
+  Two = '02',
+  Three = '03',
+  Four = '04',
+  Five = '05',
+  Six = '06',
+  Seven = '07',
+  Eight = '08',
+  Nine = '09',
+  Ten = '10',
+  Jack = 'J',
+  Queen = 'Q',
+  King = 'K',
+  Ace = 'A',
+}

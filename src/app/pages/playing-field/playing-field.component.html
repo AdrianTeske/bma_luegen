@@ -1,0 +1,281 @@
+<div class="relative min-h-screen overflow-hidden px-4 py-6 md:px-8">
+  <div class="mx-auto flex w-full max-w-6xl flex-col gap-8 lg:flex-row">
+    <div class="flex w-full flex-1 flex-col gap-6">
+      <div class="rounded-3xl border border-emerald-500/30 bg-felt-900/70 p-6 shadow-[0_30px_80px_-40px_rgba(0,0,0,0.85)] backdrop-blur md:p-8">
+        <div class="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <p class="text-xs uppercase tracking-[0.35em] text-emerald-200/80">
+              Current Rank
+            </p>
+            <p class="mt-2 text-2xl font-semibold text-ink-50">
+              {{ declaredRankLabel }}
+            </p>
+            <p class="mt-1 text-xs uppercase tracking-[0.35em] text-ink-300/70">
+              Turn: {{ currentPlayerName }}
+            </p>
+          </div>
+          <div class="flex items-center gap-3">
+            <div class="flex items-center gap-3 rounded-2xl border border-emerald-400/30 bg-felt-950/60 px-4 py-3">
+              <div class="text-3xl font-semibold text-emerald-200">
+                {{ remainingSeconds }}
+              </div>
+              <div class="text-xs uppercase tracking-[0.35em] text-ink-300/70">
+                Seconds
+              </div>
+            </div>
+            <button
+              (click)="openMenu()"
+              class="flex h-11 w-11 items-center justify-center rounded-2xl border border-emerald-300/40 bg-felt-950/60 text-emerald-100 transition hover:border-emerald-200 hover:bg-felt-900"
+              aria-label="Open menu"
+            >
+              <span class="text-xl leading-none">☰</span>
+            </button>
+          </div>
+        </div>
+        <div class="mt-3 flex items-center justify-end">
+          <div class="flex flex-wrap items-center justify-end gap-2 rounded-full border border-emerald-400/20 bg-felt-950/60 px-3 py-1">
+            <span class="text-[0.55rem] uppercase tracking-[0.35em] text-ink-300/70">
+              Discarded
+            </span>
+            @if (discardedRankList.length === 0) {
+              <span class="text-sm font-semibold text-emerald-100">
+                --
+              </span>
+            } @else {
+              @for (rank of discardedRankList; track $index) {
+                <span class="rounded-full border border-emerald-300/40 bg-felt-950/70 px-2 py-0.5 text-[0.65rem] font-semibold text-emerald-100">
+                  {{ rank }}
+                </span>
+              }
+            }
+          </div>
+        </div>
+
+        @if (currentSessionDisconnected) {
+          <div class="mt-4 rounded-2xl border border-gold-300/40 bg-gold-400/10 px-4 py-2 text-xs uppercase tracking-[0.35em] text-gold-200">
+            Current player disconnected — waiting for next turn
+          </div>
+        }
+
+        <div class="mt-8 flex flex-col items-center gap-3">
+          <p class="text-xs uppercase tracking-[0.35em] text-emerald-200/80">
+            Stack ({{ stackCount }} cards)
+          </p>
+          <div class="flex w-full items-center justify-center">
+            <div class="relative h-52 w-full max-w-md">
+            <div class="absolute inset-0 flex items-center justify-center">
+              @for (card of stackCards; track $index) {
+                <div
+                  class="absolute transition"
+                  [style.transform]="'translate(-50%, -50%) rotate(' + card.degree + 'deg)'"
+                  [style.top]="'calc(50% + ' + card.top + 'px)'"
+                  [style.left]="'calc(50% + ' + card.left + 'px)'"
+                >
+                  <app-card [suit]="card.suit" [rank]="card.rank"></app-card>
+                </div>
+              }
+              @if (stackCount === 0) {
+                <div class="rounded-2xl border border-emerald-300/30 bg-felt-950/60 px-6 py-3 text-sm uppercase tracking-[0.35em] text-emerald-200/70">
+                  Empty Stack
+                </div>
+              }
+            </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="mt-6 grid gap-4 md:grid-cols-[1fr_auto]">
+          @if (showDeclaredRankSelect) {
+            <div class="rounded-2xl border border-emerald-400/20 bg-felt-950/60 px-4 py-4">
+              <p class="text-xs uppercase tracking-[0.35em] text-emerald-200/80">
+                Declare Rank
+              </p>
+              <select
+                [(ngModel)]="selectedRank"
+                (ngModelChange)="onDeclaredRankChange()"
+                [disabled]="isRankLocked"
+                class="mt-3 w-full rounded-2xl border border-emerald-400/30 bg-felt-950/70 px-4 py-2 text-lg text-ink-50 focus:border-gold-300/70 focus:outline-none focus:ring-2 focus:ring-gold-400/40 disabled:opacity-50"
+              >
+                @for (rank of availableRanks; track rank) {
+                  <option [value]="rank">
+                    {{ rankLabel(rank) }}
+                  </option>
+                }
+              </select>
+            </div>
+          }
+          <div class="flex items-center gap-3">
+            <button
+              (click)="primaryAction()"
+              [disabled]="!canLay"
+              class="group relative overflow-hidden rounded-2xl bg-gradient-to-br from-emerald-400 via-emerald-500 to-emerald-600 px-6 py-4 text-lg font-semibold text-ink-950 shadow-[0_18px_30px_-20px_rgba(34,197,94,0.85)] transition hover:translate-y-[-1px] hover:from-emerald-300 hover:via-emerald-400 hover:to-emerald-500 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <span class="relative z-10">{{ primaryActionLabel }}</span>
+              <span class="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.5),transparent_70%)] opacity-0 transition group-hover:opacity-100"></span>
+            </button>
+            @if (stackCount > 0) {
+              <button
+                (click)="callBullshit()"
+                [disabled]="!canCallBullshit"
+                class="rounded-2xl border border-gold-300/60 bg-felt-950/70 px-6 py-4 text-lg font-semibold text-gold-100 transition hover:-translate-y-[1px] hover:border-gold-200 hover:bg-felt-900 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Call Bullshit
+              </button>
+            }
+          </div>
+        </div>
+        @if (isActionInFlight) {
+          <p class="mt-4 text-center text-xs uppercase tracking-[0.35em] text-ink-300/70">
+            Sending move...
+          </p>
+        }
+
+      </div>
+
+      <div class="rounded-3xl border border-emerald-500/30 bg-felt-900/70 p-5 shadow-[0_30px_80px_-40px_rgba(0,0,0,0.85)] backdrop-blur md:p-6">
+        <div class="flex items-center justify-between">
+          <p class="text-xs uppercase tracking-[0.35em] text-emerald-200/80">
+            Your Hand
+          </p>
+          <div class="flex items-center gap-3 text-xs uppercase tracking-[0.35em] text-ink-300/70">
+            <span>{{ handCards.length }} cards</span>
+            <span>{{ hasSelection ? selectedIndices.size : 0 }} selected</span>
+          </div>
+        </div>
+        <div class="mt-4 flex max-w-full items-end overflow-x-auto pb-3">
+          @for (card of handCards; track $index) {
+            <button
+              (click)="toggleSelectCard($index)"
+              class="relative shrink-0 transition"
+              [class.-translate-y-3]="isSelected($index)"
+              [class.-ml-10]="$index > 0"
+            >
+              <span
+                class="absolute inset-0 rounded-2xl ring-2 ring-gold-300/70 opacity-0 transition"
+                [class.opacity-100]="isSelected($index)"
+              ></span>
+              <app-card [suit]="card.suit" [rank]="card.rank"></app-card>
+            </button>
+          }
+        </div>
+      </div>
+    </div>
+
+    <div class="hidden w-full max-w-md lg:block"></div>
+  </div>
+</div>
+
+@if (showMenu) {
+  <div class="fixed inset-0 z-50">
+    <button
+      (click)="closeMenu()"
+      class="absolute inset-0 bg-black/60 backdrop-blur-sm"
+      aria-label="Close menu"
+    ></button>
+    <aside class="absolute right-0 top-0 flex h-screen w-full max-w-sm flex-col gap-6 overflow-y-auto border-l border-emerald-500/30 bg-felt-900/95 p-6 shadow-[0_30px_80px_-40px_rgba(0,0,0,0.85)]">
+      <div class="flex items-center justify-between">
+        <p class="text-xs uppercase tracking-[0.35em] text-emerald-200/80">
+          Menu
+        </p>
+        <button
+          (click)="closeMenu()"
+          class="flex h-10 w-10 items-center justify-center rounded-2xl border border-emerald-300/40 bg-felt-950/70 text-emerald-100"
+          aria-label="Close menu"
+        >
+          ✕
+        </button>
+      </div>
+
+      <div>
+        <p class="text-xs uppercase tracking-[0.35em] text-emerald-200/80">
+          Turn Order
+        </p>
+        <div class="mt-4 space-y-3">
+          @for (session of orderedSessions; track session.player_id) {
+            <div
+              class="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-emerald-400/20 bg-felt-950/60 px-4 py-3"
+              [class.border-emerald-300]="session.player_id === currentTurnPlayerId"
+            >
+              <div class="text-ink-50">
+                {{ getPlayerName(session.player_id) }}
+              </div>
+              <div class="flex items-center gap-2 text-[0.6rem] uppercase tracking-[0.35em] text-emerald-200/70">
+                <span>#{{ toNumber(session.turn_order) + 1 }}</span>
+                @if (session.player_id === currentTurnPlayerId) {
+                  <span class="rounded-full border border-gold-300/50 bg-gold-400/10 px-2 py-1 text-gold-200">
+                    Playing
+                  </span>
+                }
+                @if (session.player_id === supabaseService.player().id) {
+                  <span class="rounded-full border border-emerald-300/50 bg-emerald-400/10 px-2 py-1 text-emerald-200">
+                    You
+                  </span>
+                }
+                @if (session.connected === false) {
+                  <span class="rounded-full border border-ink-300/40 bg-felt-950/60 px-2 py-1 text-ink-300">
+                    Offline
+                  </span>
+                }
+              </div>
+            </div>
+          }
+        </div>
+      </div>
+
+      <div class="mt-auto grid gap-3 sm:grid-cols-2">
+        <button
+          (click)="openLeaveConfirm(); closeMenu()"
+          class="rounded-2xl border border-gold-300/60 bg-felt-950/70 px-4 py-3 text-sm font-semibold uppercase tracking-[0.35em] text-gold-100 transition hover:-translate-y-[1px] hover:border-gold-200 hover:bg-felt-900"
+        >
+          Leave Game
+        </button>
+        <button
+          (click)="endGame()"
+          [disabled]="!isHost"
+          class="rounded-2xl border border-emerald-300/40 bg-felt-950/60 px-4 py-3 text-sm font-semibold uppercase tracking-[0.35em] text-emerald-200 transition hover:border-emerald-200 hover:bg-felt-900 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          End Game (Host)
+        </button>
+      </div>
+    </aside>
+  </div>
+}
+
+@if (showEndSplash) {
+  <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-6 backdrop-blur-sm">
+    <div class="w-full max-w-md rounded-3xl border border-emerald-400/30 bg-felt-900/90 p-6 text-center shadow-[0_30px_80px_-40px_rgba(0,0,0,0.85)]">
+      <h3 class="text-3xl font-semibold text-ink-50">
+        Round Finished
+      </h3>
+      <p class="mt-3 text-sm text-ink-200/80">
+        Returning to lobby in {{ endCountdown }}s
+      </p>
+    </div>
+  </div>
+}
+
+@if (showLeaveConfirm) {
+  <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-6 backdrop-blur-sm">
+    <div class="w-full max-w-sm rounded-3xl border border-emerald-400/30 bg-felt-900/90 p-6 text-center shadow-[0_30px_80px_-40px_rgba(0,0,0,0.85)]">
+      <p class="text-xs uppercase tracking-[0.35em] text-emerald-200/80">Confirm</p>
+      <h3 class="mt-3 text-2xl font-semibold text-ink-50">Leave Game?</h3>
+      <p class="mt-2 text-sm text-ink-200/80">
+        You’ll return to the lobby and lose your current turn.
+      </p>
+      <div class="mt-6 grid gap-3 sm:grid-cols-2">
+        <button
+          (click)="closeLeaveConfirm()"
+          class="rounded-2xl border border-emerald-300/40 bg-felt-950/60 px-4 py-3 text-sm font-semibold uppercase tracking-[0.35em] text-emerald-200 transition hover:border-emerald-200 hover:bg-felt-900"
+        >
+          Cancel
+        </button>
+        <button
+          (click)="leaveGame()"
+          class="rounded-2xl border border-gold-300/60 bg-gold-400/10 px-4 py-3 text-sm font-semibold uppercase tracking-[0.35em] text-gold-100 transition hover:border-gold-200 hover:bg-gold-400/20"
+        >
+          Leave
+        </button>
+      </div>
+    </div>
+  </div>
+}
